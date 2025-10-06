@@ -1,0 +1,8 @@
+pytest
+ruff
+mypy
+openpyxl
+pandas
+boto3
+requests
+python-dateutil
