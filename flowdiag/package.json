@@ -2,6 +2,7 @@
   "name": "flowdiag-balance3",
   "version": "1.0.0",
   "private": true,
+  "description": "Temporary diagnostic build for Amazfit Balance 3",
   "scripts": {"build": "zeusx build"},
   "devDependencies": {
     "@zeppos/device-types": "3.0.0",
