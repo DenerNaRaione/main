@@ -1,0 +1,181 @@
+name: Build Zepp Flow Russian Locked
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zeppflow-russian-locked]
+    paths:
+      - '.github/workflows/build-zeppflow-russian-locked.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: zeppflow-russian-locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build harmless lock page
+        run: |
+          rm -rf LockPage-src
+          git clone --depth 1 https://github.com/melianmiko/FlowConfig.git LockPage-src
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('LockPage-src/app.json')
+          o=json.loads(p.read_text())
+          plats=o['targets']['base']['platforms']
+          if not any(isinstance(x,dict) and x.get('deviceSource')==11141379 for x in plats):
+              plats.append({'deviceSource':11141379})
+          p.write_text(json.dumps(o,ensure_ascii=False,indent=4)+'\n')
+          Path('LockPage-src/page/index.ts').write_text(r'''import { createWidget, widget, align, text_style } from "@zos/ui";
+
+Page({
+  build() {
+    createWidget(widget.TEXT, {
+      x: 35,
+      y: 145,
+      w: 410,
+      h: 150,
+      text: "Русский язык уже включён\nИзменение языка заблокировано",
+      text_size: 28,
+      color: 0xFFFFFF,
+      align_h: align.CENTER_H,
+      align_v: align.CENTER_V,
+      text_style: text_style.WRAP,
+    });
+  },
+});
+''')
+          PY
+
+      - name: Install build tooling
+        working-directory: LockPage-src
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-audit --no-fund --save-dev zeusx@0.8.1 @zeppos/zeus-cli@1.9.3 @zeppos/zpm@3.4.2 typescript@5.9.2
+          rm -rf node_modules/zeppos-app-utils
+          ln -s @zeppos/zeus-cli/private-modules/zeppos-app-utils node_modules/zeppos-app-utils
+
+      - name: Compile lock page
+        working-directory: LockPage-src
+        run: printf '\n' | npm run build
+
+      - name: Get known-working Russian v2
+        run: |
+          curl -fL --retry 3 -o working-v2.zpk https://raw.githubusercontent.com/DenerNaRaione/main/c83776c9b2183357949328240cb42e3f0ff1971d/ZeppFlow_Balance3_2.3.4_Russian_v2_preview.zpk
+
+      - name: Inject lock page and disable Settings language navigation
+        run: |
+          python3 - <<'PY'
+          import zipfile, io, json, hashlib
+          from pathlib import Path
+
+          target=11141379
+          lock_zab=next(Path('LockPage-src/dist').glob('*.zab'))
+          with zipfile.ZipFile(lock_zab,'r') as zab:
+              manifest=json.loads(zab.read('manifest.json'))
+              entry=next(e for e in manifest['zpks'] if any(isinstance(p,dict) and p.get('deviceSource')==target for p in e.get('platforms',[])))
+              built_zpk=zab.read(entry['name'])
+
+          with zipfile.ZipFile(io.BytesIO(built_zpk),'r') as zpk:
+              lock_device=zpk.read('device.zip')
+          with zipfile.ZipFile(io.BytesIO(lock_device),'r') as dz:
+              lock_bin=dz.read('page/index.bin')
+
+          old_route=b'page/gtr/language/index.page'
+          new_route=b'page/gtr/langlock/index.page'
+          assert len(old_route)==len(new_route)==28
+
+          def zi(info):
+              ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
+              ni.compress_type=info.compress_type
+              ni.external_attr=info.external_attr
+              ni.create_system=info.create_system
+              ni.flag_bits=info.flag_bits
+              return ni
+
+          def patch_device(device_bytes):
+              zin=zipfile.ZipFile(io.BytesIO(device_bytes),'r')
+              out=io.BytesIO()
+              with zipfile.ZipFile(out,'w') as zout:
+                  for info in zin.infolist():
+                      data=zin.read(info.filename)
+                      if info.filename=='page/gtr/setting/index.page.bin':
+                          assert data.count(old_route)==1, data.count(old_route)
+                          data=data.replace(old_route,new_route,1)
+                      elif info.filename=='app.json':
+                          obj=json.loads(data.decode())
+                          pages=obj['module']['page']['pages']
+                          if 'page/gtr/langlock/index.page' not in pages:
+                              pages.append('page/gtr/langlock/index.page')
+                          obj.setdefault('packageInfo',{})['mode']='preview'
+                          data=json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode()
+                      elif info.filename.startswith('assets/raw/setting/setting_') and info.filename.endswith('.json'):
+                          obj=json.loads(data.decode('utf-8'))
+                          if 'language' in obj:
+                              obj['language']='Русский 🔒'
+                          data=json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+                      zout.writestr(zi(info),data)
+                  ni=zipfile.ZipInfo('page/gtr/langlock/index.page.bin')
+                  ni.compress_type=zipfile.ZIP_DEFLATED
+                  zout.writestr(ni,lock_bin)
+              return out.getvalue()
+
+          def patch_side(side_bytes):
+              zin=zipfile.ZipFile(io.BytesIO(side_bytes),'r')
+              out=io.BytesIO()
+              with zipfile.ZipFile(out,'w') as zout:
+                  for info in zin.infolist():
+                      data=zin.read(info.filename)
+                      if info.filename=='app.json':
+                          obj=json.loads(data.decode())
+                          obj.setdefault('packageInfo',{})['mode']='preview'
+                          data=json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode()
+                      zout.writestr(zi(info),data)
+              return out.getvalue()
+
+          src=Path('working-v2.zpk')
+          final=Path('ZeppFlow_Balance3_2.3.4_Russian_LOCKED_preview.zpk')
+          zin=zipfile.ZipFile(src,'r')
+          out=io.BytesIO()
+          with zipfile.ZipFile(out,'w') as zout:
+              for info in zin.infolist():
+                  data=zin.read(info.filename)
+                  if info.filename=='device.zip': data=patch_device(data)
+                  elif info.filename=='app-side.zip': data=patch_side(data)
+                  zout.writestr(zi(info),data)
+          final.write_bytes(out.getvalue())
+
+          with zipfile.ZipFile(final,'r') as z:
+              dev=z.read('device.zip')
+          with zipfile.ZipFile(io.BytesIO(dev),'r') as z:
+              app=json.loads(z.read('app.json'))
+              settings=z.read('page/gtr/setting/index.page.bin')
+              lang=z.read('page/gtr/language/index.page.bin')
+              assert app['app']['appId']==1094818
+              assert app['app']['version']['name']=='2.3.4'
+              assert new_route in settings and old_route not in settings
+              assert 'page/gtr/langlock/index.page' in app['module']['page']['pages']
+              assert 'page/gtr/langlock/index.page.bin' in z.namelist()
+              assert b'ru-RU\x04ru' in lang
+              ru=json.loads(z.read('assets/raw/setting/setting_ru-RU.json').decode('utf-8'))
+              assert ru['language']=='Русский 🔒'
+          print('FINAL',final,final.stat().st_size)
+          print('SHA256',hashlib.sha256(final.read_bytes()).hexdigest())
+          PY
+
+      - name: Commit locked package
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ZeppFlow_Balance3_2.3.4_Russian_LOCKED_preview.zpk
+          git commit -m 'Build Zepp Flow Russian locked package' || exit 0
+          git push
