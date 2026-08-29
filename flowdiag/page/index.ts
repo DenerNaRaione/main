@@ -1,64 +1,70 @@
-Page({
-  build() {
-    const WHITE = 0xFFFFFF;
-    const BLUE = 0x2F80ED;
-    const GREEN = 0x00D084;
-    const ORANGE = 0xFF9800;
+import { ListItem, ListView, SectionHeaderComponent } from "mzfw/device/UiListView";
+import { Component } from "mzfw/device/UiComponent";
+import { Path } from "mzfw/device/Path";
 
-    function addText(text: string, y: number, size: number, color: number) {
-      hmUI.createWidget(hmUI.widget.TEXT, {
-        x: 40,
-        y,
-        w: 400,
-        h: 90,
-        text,
-        text_size: size,
-        color,
-        align_h: hmUI.align.CENTER_H,
-        text_style: hmUI.text_style.WRAP,
-      });
-    }
+class RootPage extends ListView<{}> {
+  protected build(): (Component<any> | null)[] {
+    const root = new Path("full", "/storage/js_apps/data");
+    let names: string[] = [];
+    let error = "";
 
-    addText('FlowDiag for Balance 3', 45, 30, BLUE);
-
-    let names: any[] = [];
-    let err: any = -999;
     try {
-      const r: any = hmFS.readdir('/storage/js_apps/data');
-      if (Array.isArray(r)) {
-        if (Array.isArray(r[0])) {
-          names = r[0] || [];
-          err = r[1];
-        } else {
-          names = r;
-          err = 0;
-        }
-      }
+      names = root.list() ?? [];
     } catch (e) {
-      addText('readdir error: ' + e, 120, 22, ORANGE);
-      return;
+      error = String(e);
     }
 
-    const hits: string[] = [];
-    for (let i = 0; i < names.length; i++) {
-      const id = String(names[i]);
+    const hits: { id: string; version?: string; language?: string }[] = [];
+
+    for (const name of names) {
+      const id = String(name);
       try {
-        const path = '/storage/js_apps/data/' + id + '/flex_set.txt';
-        const st: any = hmFS.stat(path);
-        let ok = false;
-        if (Array.isArray(st)) ok = st[1] === 0;
-        else ok = !!st;
-        if (ok) hits.push(id);
-      } catch (e) {}
+        const file = new Path("full", `/storage/js_apps/data/${id}/flex_set.txt`);
+        if (!file.exists()) continue;
+
+        let version: string | undefined;
+        let language: string | undefined;
+        try {
+          const cfg = file.fetchJSON();
+          version = cfg?.lastVersion;
+          language = cfg?.flowLanguageCodeZone;
+        } catch {}
+
+        hits.push({ id, version, language });
+      } catch {}
     }
+
+    const result: (Component<any> | null)[] = [
+      new SectionHeaderComponent("FlowDiag Balance 3"),
+      new ListItem({
+        title: `Folders: ${names.length}`,
+        description: error || "Scanning /storage/js_apps/data",
+      }),
+    ];
 
     if (hits.length) {
-      addText('FOUND flex_set.txt', 120, 26, GREEN);
-      addText(hits.join('\n'), 185, 30, WHITE);
+      result.push(new SectionHeaderComponent("FOUND flex_set.txt"));
+      for (const hit of hits) {
+        result.push(new ListItem({
+          title: hit.id,
+          description: `version=${hit.version ?? "?"}; language=${hit.language ?? "?"}`,
+          titleColor: 0x33FF33,
+        }));
+      }
     } else {
-      addText('No flex_set.txt found', 120, 26, ORANGE);
-      addText('folders=' + names.length + ' err=' + err, 190, 22, WHITE);
-      addText(names.slice(0, 8).join('\n'), 245, 20, WHITE);
+      result.push(new ListItem({
+        title: "No flex_set.txt found",
+        description: names.slice(0, 10).join(", ") || error || "Directory empty/unreadable",
+        titleColor: 0xFF9900,
+      }));
     }
+
+    return result;
   }
-})
+
+  protected buildMore(_page: number): Promise<Component<any>[]> {
+    return Promise.resolve([]);
+  }
+}
+
+Page(RootPage.makePage(new RootPage({})));
