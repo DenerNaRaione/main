@@ -1,0 +1,125 @@
+name: Build Flow RU Same-ID Helper
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [flow-ruru-sameid-helper]
+    paths:
+      - '.github/workflows/build-flow-ruru-sameid-helper.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: flow-ruru-sameid-helper
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Clone upstream FlowConfig
+        run: |
+          rm -rf FlowConfig-src
+          git clone --depth 1 https://github.com/melianmiko/FlowConfig.git FlowConfig-src
+
+      - name: Patch helper to run inside Zepp Flow app sandbox
+        working-directory: FlowConfig-src
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p=Path('app.json')
+          obj=json.loads(p.read_text())
+          obj['app']['appId']=1094818
+          obj['app']['appName']='Flow RU Setter'
+          obj['app']['description']='Temporary same-ID helper to set Zepp Flow locale'
+          obj['app']['version']['code']=2304
+          obj['app']['version']['name']='2.3.4'
+          plats=obj['targets']['base']['platforms']
+          if not any(isinstance(x, dict) and x.get('deviceSource')==11141379 for x in plats):
+              plats.append({'deviceSource':11141379})
+          p.write_text(json.dumps(obj, ensure_ascii=False, indent=4) + '\n')
+
+          p=Path('page/lib/constants.ts')
+          s=p.read_text()
+          if '0010B4A2' not in s:
+              marker='export const FLOW_APP_IDS = [\n'
+              s=s.replace(marker, marker + '  // Balance 3 Zepp Flow 2.3.4\n  "0010B4A2",\n')
+          p.write_text(s)
+          PY
+
+      - name: Install dependencies and compatibility tooling
+        working-directory: FlowConfig-src
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-audit --no-fund --save-dev zeusx@0.8.1 @zeppos/zeus-cli@1.9.3 @zeppos/zpm@3.4.2 typescript@5.9.2
+          rm -rf node_modules/zeppos-app-utils
+          ln -s @zeppos/zeus-cli/private-modules/zeppos-app-utils node_modules/zeppos-app-utils
+
+      - name: Build ZAB
+        working-directory: FlowConfig-src
+        run: printf '\n' | npm run build
+
+      - name: Create Balance 3 preview ZPK
+        run: |
+          cp FlowConfig-src/dist/*.zab Flow_RU_SameID_Helper.zab
+          python3 - <<'PY'
+          import zipfile, io, json, hashlib
+          from pathlib import Path
+
+          zab_path=Path('Flow_RU_SameID_Helper.zab')
+          out_path=Path('Flow_RU_SameID_Helper_Balance3_preview.zpk')
+          target=11141379
+
+          with zipfile.ZipFile(zab_path,'r') as zab:
+              manifest=json.loads(zab.read('manifest.json'))
+              entry=next(e for e in manifest['zpks'] if any((isinstance(p,dict) and p.get('deviceSource')==target) for p in e.get('platforms',[])))
+              zpk_bytes=zab.read(entry['name'])
+
+          def patch_nested(b):
+              zin=zipfile.ZipFile(io.BytesIO(b),'r')
+              out=io.BytesIO()
+              with zipfile.ZipFile(out,'w') as zout:
+                  for info in zin.infolist():
+                      data=zin.read(info.filename)
+                      if info.filename=='app.json':
+                          obj=json.loads(data.decode())
+                          obj.setdefault('packageInfo',{})['mode']='preview'
+                          data=json.dumps(obj,separators=(',',':')).encode()
+                      ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
+                      ni.compress_type=info.compress_type
+                      ni.external_attr=info.external_attr
+                      ni.create_system=info.create_system
+                      zout.writestr(ni,data)
+              return out.getvalue()
+
+          zin=zipfile.ZipFile(io.BytesIO(zpk_bytes),'r')
+          out=io.BytesIO()
+          with zipfile.ZipFile(out,'w') as zout:
+              for info in zin.infolist():
+                  data=zin.read(info.filename)
+                  if info.filename in ('device.zip','app-side.zip'):
+                      data=patch_nested(data)
+                  ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
+                  ni.compress_type=info.compress_type
+                  ni.external_attr=info.external_attr
+                  ni.create_system=info.create_system
+                  zout.writestr(ni,data)
+          out_path.write_bytes(out.getvalue())
+          print('ZPK', out_path, out_path.stat().st_size)
+          print('SHA256', hashlib.sha256(out_path.read_bytes()).hexdigest())
+          PY
+
+      - name: Commit helper package
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Flow_RU_SameID_Helper.zab Flow_RU_SameID_Helper_Balance3_preview.zpk
+          git commit -m 'Build same-ID Flow RU helper for Balance 3' || exit 0
+          git push
