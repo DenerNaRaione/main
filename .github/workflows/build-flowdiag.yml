@@ -1,0 +1,89 @@
+name: Build FlowDiag Balance 3
+
+on:
+  push:
+    branches: [flowconfig-balance3-autodetect]
+    paths:
+      - 'flowdiag/**'
+      - '.github/workflows/build-flowdiag.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: flowconfig-balance3-autodetect
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Prepare icon
+        working-directory: flowdiag
+        run: |
+          mkdir -p assets/base
+          python3 - <<'PY'
+          import struct,zlib
+          def chunk(t,d):
+              return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+          raw=b'\x00\x2f\x80\xed\xff'
+          png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
+          open('assets/base/icon.png','wb').write(png)
+          PY
+      - name: Install dependencies
+        working-directory: flowdiag
+        run: |
+          npm install --no-audit --no-fund
+          rm -rf node_modules/zeppos-app-utils
+          ln -s @zeppos/zeus-cli/private-modules/zeppos-app-utils node_modules/zeppos-app-utils
+      - name: Build
+        working-directory: flowdiag
+        run: printf '\n' | npm run build
+      - name: Create preview ZPK
+        run: |
+          cp flowdiag/dist/*.zab FlowDiag_Balance3.zab
+          python3 - <<'PY'
+          import zipfile, io, json
+          from pathlib import Path
+          zab_path=Path('FlowDiag_Balance3.zab')
+          out_path=Path('FlowDiag_Balance3_11141379_preview.zpk')
+          target=11141379
+          with zipfile.ZipFile(zab_path,'r') as zab:
+              manifest=json.loads(zab.read('manifest.json'))
+              entry=next(e for e in manifest['zpks'] if any(p.get('deviceSource')==target for p in e.get('platforms',[])))
+              zpk_bytes=zab.read(entry['name'])
+          def patch_nested(b):
+              zin=zipfile.ZipFile(io.BytesIO(b),'r'); out=io.BytesIO()
+              with zipfile.ZipFile(out,'w') as zout:
+                  for info in zin.infolist():
+                      data=zin.read(info.filename)
+                      if info.filename=='app.json':
+                          obj=json.loads(data.decode())
+                          obj.setdefault('packageInfo',{})['mode']='preview'
+                          data=json.dumps(obj,separators=(',',':')).encode()
+                      ni=zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                      ni.compress_type=info.compress_type; ni.external_attr=info.external_attr; ni.create_system=info.create_system
+                      zout.writestr(ni,data)
+              return out.getvalue()
+          zin=zipfile.ZipFile(io.BytesIO(zpk_bytes),'r'); out=io.BytesIO()
+          with zipfile.ZipFile(out,'w') as zout:
+              for info in zin.infolist():
+                  data=zin.read(info.filename)
+                  if info.filename in ('device.zip','app-side.zip'):
+                      data=patch_nested(data)
+                  ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
+                  ni.compress_type=info.compress_type; ni.external_attr=info.external_attr; ni.create_system=info.create_system
+                  zout.writestr(ni,data)
+          out_path.write_bytes(out.getvalue())
+          print(out_path, out_path.stat().st_size)
+          PY
+      - name: Commit packages
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FlowDiag_Balance3.zab FlowDiag_Balance3_11141379_preview.zpk
+          git commit -m 'Build FlowDiag Balance 3 packages' || exit 0
+          git push

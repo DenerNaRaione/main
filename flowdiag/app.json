@@ -1,0 +1,37 @@
+{
+  "configVersion": "v3",
+  "app": {
+    "appId": 1088386,
+    "appName": "FlowDiag",
+    "appType": "app",
+    "icon": "icon.png",
+    "vender": "",
+    "description": "Find Zepp Flow app ID on Balance 3",
+    "version": {"code": 2, "name": "1.1.0"}
+  },
+  "defaultLanguage": "en-US",
+  "withBundleGlobals": true,
+  "permissions": [
+    "data:os.device.info",
+    "data:user.info"
+  ],
+  "includeAssets": {
+    "mzfw": "./node_modules/mzfw/assets"
+  },
+  "includeRawAssets": {
+    "mzfw": "./node_modules/mzfw/assets_raw"
+  },
+  "targetZeppOS": "3.0.0",
+  "targets": {
+    "base": {
+      "targetZeppOS": "3.0.0",
+      "designWidth": 480,
+      "platforms": [{"deviceSource": 11141379}],
+      "module": {
+        "page": {
+          "pages": ["page/index"]
+        }
+      }
+    }
+  }
+}
