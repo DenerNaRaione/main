@@ -35,26 +35,8 @@ jobs:
           if not any(isinstance(x,dict) and x.get('deviceSource')==11141379 for x in plats):
               plats.append({'deviceSource':11141379})
           p.write_text(json.dumps(o,ensure_ascii=False,indent=4)+'\n')
-          Path('LockPage-src/page/index.ts').write_text(r'''import { createWidget, widget, align, text_style } from "@zos/ui";
-
-Page({
-  build() {
-    createWidget(widget.TEXT, {
-      x: 35,
-      y: 145,
-      w: 410,
-      h: 150,
-      text: "Русский язык уже включён\nИзменение языка заблокировано",
-      text_size: 28,
-      color: 0xFFFFFF,
-      align_h: align.CENTER_H,
-      align_v: align.CENTER_V,
-      text_style: text_style.WRAP,
-    });
-  },
-});
-''')
           PY
+          echo 'aW1wb3J0IHsgY3JlYXRlV2lkZ2V0LCB3aWRnZXQsIGFsaWduLCB0ZXh0X3N0eWxlIH0gZnJvbSAiQHpvcy91aSI7CgpQYWdlKHsKICBidWlsZCgpIHsKICAgIGNyZWF0ZVdpZGdldCh3aWRnZXQuVEVYVCwgewogICAgICB4OiAzNSwKICAgICAgeTogMTQ1LAogICAgICB3OiA0MTAsCiAgICAgIGg6IDE1MCwKICAgICAgdGV4dDogItCg0YPRgdGB0LrQuNC5INGP0LfRi9C6INGD0LbQtSDQstC60LvRjtGH0ZHQvVxu0JjQt9C80LXQvdC10L3QuNC1INGP0LfRi9C60LAg0LfQsNCx0LvQvtC60LjRgNC+0LLQsNC90L4iLAogICAgICB0ZXh0X3NpemU6IDI4LAogICAgICBjb2xvcjogMHhGRkZGRkYsCiAgICAgIGFsaWduX2g6IGFsaWduLkNFTlRFUl9ILAogICAgICBhbGlnbl92OiBhbGlnbi5DRU5URVJfViwKICAgICAgdGV4dF9zdHlsZTogdGV4dF9zdHlsZS5XUkFQLAogICAgfSk7CiAgfSwKfSk7Cg==' | base64 -d > LockPage-src/page/index.ts
 
       - name: Install build tooling
         working-directory: LockPage-src
@@ -77,23 +59,19 @@ Page({
           python3 - <<'PY'
           import zipfile, io, json, hashlib
           from pathlib import Path
-
           target=11141379
           lock_zab=next(Path('LockPage-src/dist').glob('*.zab'))
           with zipfile.ZipFile(lock_zab,'r') as zab:
               manifest=json.loads(zab.read('manifest.json'))
               entry=next(e for e in manifest['zpks'] if any(isinstance(p,dict) and p.get('deviceSource')==target for p in e.get('platforms',[])))
               built_zpk=zab.read(entry['name'])
-
           with zipfile.ZipFile(io.BytesIO(built_zpk),'r') as zpk:
               lock_device=zpk.read('device.zip')
           with zipfile.ZipFile(io.BytesIO(lock_device),'r') as dz:
               lock_bin=dz.read('page/index.bin')
-
           old_route=b'page/gtr/language/index.page'
           new_route=b'page/gtr/langlock/index.page'
           assert len(old_route)==len(new_route)==28
-
           def zi(info):
               ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
               ni.compress_type=info.compress_type
@@ -101,7 +79,6 @@ Page({
               ni.create_system=info.create_system
               ni.flag_bits=info.flag_bits
               return ni
-
           def patch_device(device_bytes):
               zin=zipfile.ZipFile(io.BytesIO(device_bytes),'r')
               out=io.BytesIO()
@@ -109,7 +86,7 @@ Page({
                   for info in zin.infolist():
                       data=zin.read(info.filename)
                       if info.filename=='page/gtr/setting/index.page.bin':
-                          assert data.count(old_route)==1, data.count(old_route)
+                          assert data.count(old_route)==1
                           data=data.replace(old_route,new_route,1)
                       elif info.filename=='app.json':
                           obj=json.loads(data.decode())
@@ -128,7 +105,6 @@ Page({
                   ni.compress_type=zipfile.ZIP_DEFLATED
                   zout.writestr(ni,lock_bin)
               return out.getvalue()
-
           def patch_side(side_bytes):
               zin=zipfile.ZipFile(io.BytesIO(side_bytes),'r')
               out=io.BytesIO()
@@ -141,7 +117,6 @@ Page({
                           data=json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode()
                       zout.writestr(zi(info),data)
               return out.getvalue()
-
           src=Path('working-v2.zpk')
           final=Path('ZeppFlow_Balance3_2.3.4_Russian_LOCKED_preview.zpk')
           zin=zipfile.ZipFile(src,'r')
@@ -153,7 +128,6 @@ Page({
                   elif info.filename=='app-side.zip': data=patch_side(data)
                   zout.writestr(zi(info),data)
           final.write_bytes(out.getvalue())
-
           with zipfile.ZipFile(final,'r') as z:
               dev=z.read('device.zip')
           with zipfile.ZipFile(io.BytesIO(dev),'r') as z:
