@@ -1,0 +1,45 @@
+name: Build FlowDiag Balance 3
+
+on:
+  push:
+    branches: [flowconfig-balance3-autodetect]
+    paths:
+      - 'flowdiag/**'
+      - '.github/workflows/build-flowdiag.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: flowconfig-balance3-autodetect
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Prepare icon
+        working-directory: flowdiag
+        run: |
+          mkdir -p assets/base
+          echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' | base64 -d > assets/base/icon.png
+      - name: Install dependencies
+        working-directory: flowdiag
+        run: npm install --no-audit --no-fund
+      - name: Build
+        working-directory: flowdiag
+        run: npm run build
+      - name: Show output
+        working-directory: flowdiag
+        run: find dist -maxdepth 2 -type f -printf '%p %s bytes\n'
+      - name: Commit ZAB output
+        run: |
+          cp flowdiag/dist/*.zab FlowDiag_Balance3.zab
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FlowDiag_Balance3.zab
+          git commit -m 'Build FlowDiag Balance 3 package' || exit 0
+          git push
