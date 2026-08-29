@@ -4,15 +4,13 @@
   "private": true,
   "description": "Temporary diagnostic build for Amazfit Balance 3",
   "scripts": {"build": "zeusx build"},
-  "dependencies": {
-    "zeppos-app-utils": "1.0.0"
-  },
   "devDependencies": {
     "@zeppos/device-types": "3.0.0",
     "@zeppos/zeus-cli": "1.9.3",
     "@zeppos/zpm": "3.4.2",
     "tslib": "2.8.1",
     "typescript": "5.9.2",
-    "zeusx": "0.8.1"
+    "zeusx": "0.8.1",
+    "zosx": "0.8.1"
   }
 }
