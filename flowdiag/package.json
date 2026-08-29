@@ -1,0 +1,10 @@
+{
+  "name": "flowdiag-balance3",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {"build": "zeusx build"},
+  "devDependencies": {
+    "@zeppos/device-types": "3.0.0",
+    "zosx": "0.8.1"
+  }
+}
