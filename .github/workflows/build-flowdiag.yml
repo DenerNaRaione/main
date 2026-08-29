@@ -28,7 +28,10 @@ jobs:
           echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' | base64 -d > assets/base/icon.png
       - name: Install dependencies
         working-directory: flowdiag
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund
+          rm -rf node_modules/zeppos-app-utils
+          ln -s @zeppos/zeus-cli/private-modules/zeppos-app-utils node_modules/zeppos-app-utils
       - name: Build
         working-directory: flowdiag
         run: printf '\n' | npm run build
