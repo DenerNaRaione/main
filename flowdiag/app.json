@@ -10,6 +10,7 @@
     "version": {"code": 1, "name": "1.0.0"}
   },
   "defaultLanguage": "en-US",
+  "permissions": ["data:os.device.info"],
   "targetZeppOS": "3.0.0",
   "targets": {
     "base": {
