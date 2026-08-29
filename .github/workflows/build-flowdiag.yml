@@ -31,7 +31,7 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build
         working-directory: flowdiag
-        run: npm run build
+        run: printf '\n' | npm run build
       - name: Show output
         working-directory: flowdiag
         run: find dist -maxdepth 2 -type f -printf '%p %s bytes\n'
