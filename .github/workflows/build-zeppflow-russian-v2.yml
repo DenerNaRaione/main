@@ -1,0 +1,90 @@
+name: Build Zepp Flow Russian v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zeppflow-russian-v2]
+    paths:
+      - '.github/workflows/build-zeppflow-russian-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: zeppflow-russian-v2
+
+      - name: Download previous package
+        run: |
+          curl -L --fail --retry 3 -o input.zpk https://files.catbox.moe/f2o1sb.zpk
+
+      - name: Restore missing Czech key while keeping Russian locale
+        run: |
+          python3 - <<'PY'
+          import io, json, zipfile, hashlib
+          from pathlib import Path
+
+          src = Path('input.zpk')
+          out = Path('ZeppFlow_Balance3_2.3.4_Russian_v2_preview.zpk')
+
+          def patch_nested(blob):
+              zin = zipfile.ZipFile(io.BytesIO(blob), 'r')
+              buf = io.BytesIO()
+              with zipfile.ZipFile(buf, 'w') as zout:
+                  for info in zin.infolist():
+                      data = zin.read(info.filename)
+                      if info.filename.startswith('assets/raw/language/language_') and info.filename.endswith('.json'):
+                          obj = json.loads(data.decode('utf-8'))
+                          # Keep the new Russian key and restore the original key expected by compiled UI.
+                          obj.setdefault('lang_ru-RU', 'Русский')
+                          obj.setdefault('lang_cs-CZ', 'Čeština')
+                          data = json.dumps(obj, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+                      ni = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                      ni.compress_type = info.compress_type
+                      ni.external_attr = info.external_attr
+                      ni.create_system = info.create_system
+                      ni.flag_bits = info.flag_bits
+                      zout.writestr(ni, data)
+              return buf.getvalue()
+
+          zin = zipfile.ZipFile(src, 'r')
+          buf = io.BytesIO()
+          with zipfile.ZipFile(buf, 'w') as zout:
+              for info in zin.infolist():
+                  data = zin.read(info.filename)
+                  if info.filename == 'device.zip':
+                      data = patch_nested(data)
+                  ni = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                  ni.compress_type = info.compress_type
+                  ni.external_attr = info.external_attr
+                  ni.create_system = info.create_system
+                  ni.flag_bits = info.flag_bits
+                  zout.writestr(ni, data)
+          out.write_bytes(buf.getvalue())
+
+          with zipfile.ZipFile(out, 'r') as z:
+              dev = zipfile.ZipFile(io.BytesIO(z.read('device.zip')), 'r')
+              page = dev.read('page/gtr/language/index.page.bin')
+              en = json.loads(dev.read('assets/raw/language/language_en-US.json').decode('utf-8'))
+              assert b'ru-RU\x04ru' in page
+              assert b'cs-CZ\x04cs' not in page
+              assert b'lang_cs-CZ' in page
+              assert b'lang_ru-RU' in page
+              assert 'lang_cs-CZ' in en
+              assert en.get('lang_ru-RU') == 'Русский'
+
+          print('SHA256', hashlib.sha256(out.read_bytes()).hexdigest())
+          print('SIZE', out.stat().st_size)
+          PY
+
+      - name: Commit package
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ZeppFlow_Balance3_2.3.4_Russian_v2_preview.zpk
+          git commit -m 'Build Zepp Flow Russian v2 package' || exit 0
+          git push
