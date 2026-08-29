@@ -25,7 +25,14 @@ jobs:
         working-directory: flowdiag
         run: |
           mkdir -p assets/base
-          echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' | base64 -d > assets/base/icon.png
+          python3 - <<'PY'
+          import struct,zlib
+          def chunk(t,d):
+              return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+          raw=b'\x00\x2f\x80\xed\xff'
+          png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
+          open('assets/base/icon.png','wb').write(png)
+          PY
       - name: Install dependencies
         working-directory: flowdiag
         run: |
