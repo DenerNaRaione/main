@@ -6,6 +6,8 @@
   "scripts": {"build": "zeusx build"},
   "devDependencies": {
     "@zeppos/device-types": "3.0.0",
-    "zosx": "0.8.1"
+    "@zeppos/zeus-cli": "1.9.3",
+    "@zeppos/zpm": "3.4.2",
+    "zeusx": "0.8.1"
   }
 }
