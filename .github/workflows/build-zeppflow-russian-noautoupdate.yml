@@ -1,0 +1,81 @@
+name: Build Zepp Flow Russian No-Auto-Update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zeppflow-russian-locked]
+    paths:
+      - '.github/workflows/build-zeppflow-russian-noautoupdate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: zeppflow-russian-locked
+
+      - name: Patch installed version code high
+        run: |
+          python3 - <<'PY'
+          import zipfile, io, json, hashlib
+          from pathlib import Path
+
+          src=Path('ZeppFlow_Balance3_2.3.4_Russian_LOCKED_preview.zpk')
+          dst=Path('ZeppFlow_Balance3_2.3.4_Russian_LOCKED_NOUPDATE_preview.zpk')
+          HIGH_CODE=999999
+
+          def zi(info):
+              ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
+              ni.compress_type=info.compress_type
+              ni.external_attr=info.external_attr
+              ni.create_system=info.create_system
+              ni.flag_bits=info.flag_bits
+              return ni
+
+          def patch_nested(data):
+              zin=zipfile.ZipFile(io.BytesIO(data),'r')
+              out=io.BytesIO()
+              with zipfile.ZipFile(out,'w') as zout:
+                  for info in zin.infolist():
+                      b=zin.read(info.filename)
+                      if info.filename=='app.json':
+                          obj=json.loads(b.decode('utf-8'))
+                          obj['app']['version']['code']=HIGH_CODE
+                          obj.setdefault('packageInfo',{})['mode']='preview'
+                          b=json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+                      zout.writestr(zi(info),b)
+              return out.getvalue()
+
+          zin=zipfile.ZipFile(src,'r')
+          out=io.BytesIO()
+          with zipfile.ZipFile(out,'w') as zout:
+              for info in zin.infolist():
+                  b=zin.read(info.filename)
+                  if info.filename in ('device.zip','app-side.zip'):
+                      b=patch_nested(b)
+                  zout.writestr(zi(info),b)
+          dst.write_bytes(out.getvalue())
+
+          with zipfile.ZipFile(dst,'r') as z:
+              dev=z.read('device.zip'); side=z.read('app-side.zip')
+          for label,b in [('device',dev),('app-side',side)]:
+              with zipfile.ZipFile(io.BytesIO(b),'r') as z:
+                  app=json.loads(z.read('app.json'))
+                  assert app['app']['appId']==1094818
+                  assert app['app']['version']['code']==HIGH_CODE
+                  assert app['app']['version']['name']=='2.3.4'
+                  print(label, app['app']['version'])
+          print('SHA256',hashlib.sha256(dst.read_bytes()).hexdigest())
+          PY
+
+      - name: Commit no-update package
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ZeppFlow_Balance3_2.3.4_Russian_LOCKED_NOUPDATE_preview.zpk
+          git commit -m 'Build Zepp Flow Russian locked no-update package' || exit 0
+          git push
