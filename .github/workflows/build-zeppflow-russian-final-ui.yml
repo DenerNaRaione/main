@@ -1,0 +1,88 @@
+name: Build Zepp Flow Russian Final UI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zeppflow-balance3-russian-final-ui]
+    paths:
+      - '.github/workflows/build-zeppflow-russian-final-ui.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: zeppflow-balance3-russian-final-ui
+
+      - name: Download working Russian v2 package
+        run: |
+          curl -fL "https://raw.githubusercontent.com/DenerNaRaione/main/c83776c9b2183357949328240cb42e3f0ff1971d/ZeppFlow_Balance3_2.3.4_Russian_v2_preview.zpk" -o working.zpk
+
+      - name: Rename Czech label to Russian only
+        run: |
+          python3 - <<'PY'
+          import io, json, zipfile, hashlib
+          from pathlib import Path
+
+          src=Path('working.zpk')
+          out=Path('ZeppFlow_Balance3_2.3.4_Russian_FINAL_preview.zpk')
+
+          def clone_info(info):
+              ni=zipfile.ZipInfo(info.filename,date_time=info.date_time)
+              ni.compress_type=info.compress_type
+              ni.external_attr=info.external_attr
+              ni.create_system=info.create_system
+              ni.flag_bits=info.flag_bits
+              return ni
+
+          def patch_device(data):
+              zin=zipfile.ZipFile(io.BytesIO(data),'r')
+              buf=io.BytesIO()
+              with zipfile.ZipFile(buf,'w') as zout:
+                  for info in zin.infolist():
+                      payload=zin.read(info.filename)
+                      if info.filename.startswith('assets/raw/language/language_') and info.filename.endswith('.json'):
+                          obj=json.loads(payload.decode('utf-8'))
+                          if 'lang_cs-CZ' in obj:
+                              obj['lang_cs-CZ']='Русский'
+                          payload=json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+                      zout.writestr(clone_info(info),payload)
+              return buf.getvalue()
+
+          zin=zipfile.ZipFile(src,'r')
+          with zipfile.ZipFile(out,'w') as zout:
+              for info in zin.infolist():
+                  payload=zin.read(info.filename)
+                  if info.filename=='device.zip':
+                      payload=patch_device(payload)
+                  zout.writestr(clone_info(info),payload)
+
+          with zipfile.ZipFile(out,'r') as z:
+              device=z.read('device.zip')
+          with zipfile.ZipFile(io.BytesIO(device),'r') as z:
+              app=json.loads(z.read('app.json'))
+              page=z.read('page/gtr/language/index.page.bin')
+              en=json.loads(z.read('assets/raw/language/language_en-US.json').decode('utf-8'))
+              ru=json.loads(z.read('assets/raw/language/language_ru-RU.json').decode('utf-8'))
+
+          assert app['app']['appId']==1094818
+          assert app['app']['version']['name']=='2.3.4'
+          assert b'ru-RU\x04ru' in page
+          assert b'lang_cs-CZ' in page
+          assert en['lang_cs-CZ']=='Русский'
+          assert ru['lang_cs-CZ']=='Русский'
+
+          print('SHA256',hashlib.sha256(out.read_bytes()).hexdigest())
+          PY
+
+      - name: Commit final package
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ZeppFlow_Balance3_2.3.4_Russian_FINAL_preview.zpk
+          git commit -m 'Add final Russian Zepp Flow package' || exit 0
+          git push
